@@ -1,0 +1,61 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [product-catalog-service, users-service, orders-service, api-gateway, notifications-service]
+    
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      MONGODB_DB_NAME: "test_db"
+      MONGODB_URL: "mongodb://localhost:27017"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd ${{ matrix.service }}
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install httpx pytest
+
+      - name: Run tests
+        run: |
+          cd ${{ matrix.service }}
+          if [ -d "tests" ]; then
+            python -m unittest discover -s tests -p 'test_*.py'
+          else
+            echo "Nema testova za ${{ matrix.service }}, preskakanje..."
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker image
+        run: |
+          SERVICE_NAME=$(echo "${{ matrix.service }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/$SERVICE_NAME:latest
+          docker build -t $IMAGE_TAG ${{ matrix.service }}
+          docker push $IMAGE_TAG
