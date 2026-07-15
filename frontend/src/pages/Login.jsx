@@ -9,20 +9,34 @@ export default function Login({ setUser }) {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await api.post('/users/login', { email, lozinka: password });
-      localStorage.setItem('token', res.data.access_token);
-      localStorage.setItem('user', JSON.stringify(res.data.korisnik));
-      setUser(res.data.korisnik);
-      navigate(res.data.korisnik.rola === 'administrator' ? '/panel' : '/');
-    } catch {
-      alert('Pogrešan email ili lozinka.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  e.preventDefault();
+  setLoading(true);
+
+  try {
+    const res = await api.post('/users/login', {
+      email,
+      lozinka: password
+    });
+
+    localStorage.setItem('token', res.data.access_token);
+    localStorage.setItem('user', JSON.stringify(res.data.korisnik));
+
+    setUser(res.data.korisnik);
+
+    navigate(
+      res.data.korisnik.rola === 'administrator'
+        ? '/panel'
+        : '/'
+    );
+  } catch {
+    alert('Pogrešan email ili lozinka.');
+
+    
+    setPassword('');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-white pt-14 flex items-center justify-center px-6">
