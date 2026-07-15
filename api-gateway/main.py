@@ -486,6 +486,16 @@ async def get_order(korisnik_id: int, narudzba_id: int, request: Request, payloa
     return proxied(response)
 
 
+@app.get("/api/countries")
+async def get_countries(request: Request):
+    response = await forward_request(
+        url=f"{USERS_SERVICE_URL}/countries",
+        method="GET",
+        headers={}
+    )
+    return proxied(response)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "api-gateway"}

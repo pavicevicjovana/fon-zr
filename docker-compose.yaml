@@ -115,7 +115,8 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
-      REST_COUNTRIES_URL: https://restcountries.com/v3.1
+      REST_COUNTRIES_URL: https://api.restcountries.com/countries/v5
+      REST_COUNTRIES_API_KEY: ${REST_COUNTRIES_API_KEY}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8001:8001"

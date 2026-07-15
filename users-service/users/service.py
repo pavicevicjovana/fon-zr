@@ -5,6 +5,39 @@ from sqlalchemy.orm import Session
 from models import Adresa, KorisnikAdresa
 from repository import UserRepository
 
+_countries_cache = None
+
+
+async def get_countries():
+    global _countries_cache
+    if _countries_cache is not None:
+        return _countries_cache
+
+    base_url = os.getenv("REST_COUNTRIES_URL")
+    headers = {"Authorization": f"Bearer {os.getenv('REST_COUNTRIES_API_KEY')}"}
+    limit = 100
+    names = []
+
+    async with httpx.AsyncClient() as client:
+        offset = 0
+        while True:
+            response = await client.get(
+                base_url,
+                params={"response_fields": "names.common", "limit": limit, "offset": offset},
+                headers=headers,
+                timeout=10.0
+            )
+            response.raise_for_status()
+            data = response.json()["data"]
+            names.extend(c["names"]["common"] for c in data["objects"])
+            if not data["meta"]["more"]:
+                break
+            offset += limit
+
+    names.sort()
+    _countries_cache = names
+    return names
+
 
 class UserService:
     def __init__(self, db: Session):
@@ -71,15 +104,20 @@ class UserService:
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
-                    f"{os.getenv('REST_COUNTRIES_URL')}/name/{drzava}",
+                    f"{os.getenv('REST_COUNTRIES_URL')}/names.common",
+                    params={"q": drzava, "response_fields": "names.common"},
+                    headers={"Authorization": f"Bearer {os.getenv('REST_COUNTRIES_API_KEY')}"},
                     timeout=5.0
                 )
-                if response.status_code != 200:
+                if response.status_code == 200 and response.json()["data"]["meta"]["total"] == 0:
                     raise HTTPException(status_code=400, detail=f"Država '{drzava}' nije validna")
-            except httpx.TimeoutException:
+            except (httpx.TimeoutException, httpx.ConnectError):
                 pass
 
         mesto = self.repo.get_or_create_mesto(postanski_broj, grad, drzava)
+
+        if je_podrazumijevana:
+            self.repo.clear_default_addresses(korisnik_id)
 
         nova_adresa = Adresa(
             ulica=ulica,

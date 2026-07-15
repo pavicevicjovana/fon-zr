@@ -62,10 +62,13 @@ class UserRepository:
             KorisnikAdresa.adresa_id == adresa_id
         ).first()
 
-    def set_default_address(self, korisnik_id: int, adresa_id: int):
+    def clear_default_addresses(self, korisnik_id: int):
         self.db.query(KorisnikAdresa).filter(
             KorisnikAdresa.korisnik_id == korisnik_id
         ).update({"je_podrazumijevana": False})
+
+    def set_default_address(self, korisnik_id: int, adresa_id: int):
+        self.clear_default_addresses(korisnik_id)
         ka = self.get_korisnik_adresa(korisnik_id, adresa_id)
         if ka:
             ka.je_podrazumijevana = True

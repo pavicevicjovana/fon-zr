@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const api = axios.create({ baseURL: 'http://localhost:8000/api' });
 
-// CSRF token stored in module memory (not localStorage — keeps it out of XSS reach)
+
 let csrfToken = null;
 
 async function fetchCsrfToken() {
@@ -14,15 +14,14 @@ async function fetchCsrfToken() {
   }
 }
 
-// Fetch once on module load
+
 fetchCsrfToken();
 
 api.interceptors.request.use(async config => {
-  // Attach JWT if available
+ 
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
 
-  // Attach CSRF token for state-changing requests
   const method = config.method?.toLowerCase();
   if (['post', 'put', 'delete', 'patch'].includes(method)) {
     if (!csrfToken) await fetchCsrfToken();
@@ -38,16 +37,21 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const detail = error.response?.data?.detail ?? '';
 
-    // Refresh the CSRF token if it expired, then let the caller retry
+    
     if (status === 403 && detail.toLowerCase().includes('csrf')) {
       await fetchCsrfToken();
       return Promise.reject(error);
     }
 
-    // Expired / invalid JWT → clear session and redirect to login
+    
     if (status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      const isLoginRequest = error.config?.url?.includes('/users/login');
+
+      if (!isLoginRequest) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
 
     return Promise.reject(error);
