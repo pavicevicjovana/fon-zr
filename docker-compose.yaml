@@ -104,6 +104,35 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+  
+  hardhat:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: velura-hardhat
+    ports:
+      - "8545:8545"
+    networks:
+      - velura-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(8545,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  blockchain-deployer:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: velura-blockchain-deployer
+    depends_on:
+      hardhat:
+        condition: service_healthy
+    networks:
+      - velura-network
+    command: npx hardhat run scripts/deploy.js --network docker
 
   users-service:
     build:
