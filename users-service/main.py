@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 from database import get_db, engine, Base
 from models import Rola
 from auth.controller import router as auth_router
 from users.controller import router as users_router
+from users.service import get_countries
 
 Base.metadata.create_all(bind=engine)
 
@@ -30,3 +32,11 @@ async def startup():
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "users-service"}
+
+
+@app.get("/countries")
+async def countries():
+    try:
+        return await get_countries()
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Ne mogu da učitam listu država")

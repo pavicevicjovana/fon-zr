@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { api } from '../api/axios';
 
 export default function CountrySelect({ value, onChange, required = false }) {
   const [countries, setCountries] = useState([]);
@@ -11,12 +12,8 @@ export default function CountrySelect({ value, onChange, required = false }) {
   const searchRef = useRef(null);
 
   useEffect(() => {
-    fetch('https://restcountries.com/v3.1/all?fields=name')
-      .then(r => r.json())
-      .then(data => {
-        const names = data.map(c => c.name.common).sort((a, b) => a.localeCompare(b));
-        setCountries(names);
-      })
+    api.get('/countries')
+      .then(res => setCountries(res.data))
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);

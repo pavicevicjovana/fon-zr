@@ -22,13 +22,20 @@ def seed():
         korisnik_rola = db.query(Rola).filter(Rola.naziv == "korisnik").first()
 
         users = [
-            {"email": "admin@velura.com", "ime": "Velura", "prezime": "Admin", "rola_id": admin_rola.id},
+            {
+                "email": "admin@velura.com",
+                "password": "password",
+                "ime": "Velura",
+                "prezime": "Admin",
+                "rola_id": admin_rola.id
+            },
         ]
         
         for i in range(1, 10):
             users.append({
                 "email": f"kupac{i}@velura.com",
                 "ime": f"Kupac",
+                "password": "password",
                 "prezime": f"Broj{i}",
                 "rola_id": korisnik_rola.id
             })
@@ -37,7 +44,7 @@ def seed():
             if not db.query(Korisnik).filter(Korisnik.email == u["email"]).first():
                 novi = Korisnik(
                     email=u["email"],
-                    lozinka_hash=pwd_context.hash("lozinka123"),
+                    lozinka_hash=pwd_context.hash(u["password"]),
                     ime=u["ime"],
                     prezime=u["prezime"],
                     rola_id=u["rola_id"]
