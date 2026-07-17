@@ -15,6 +15,13 @@ app.include_router(products_router)
 app.include_router(categories_router)
 
 
+@app.get("/blockchain/status")
+async def blockchain_status():
+    """Stanje blokcejn mreze i statistika revizijskog traga (samo za administratore)."""
+    from producer import blockchain
+    return await blockchain.get_statistics()
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "product-catalog-service"}
+

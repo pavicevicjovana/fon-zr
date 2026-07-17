@@ -574,3 +574,12 @@ async def get_all_users(request: Request, payload: dict = Depends(verify_admin))
         headers={"Authorization": request.headers.get("Authorization")}
     )
     return proxied(response)
+
+@app.get("/api/admin/blockchain")
+async def get_blockchain_status(request: Request, payload: dict = Depends(verify_admin)):
+    response = await forward_request(
+        url=f"{ORDERS_SERVICE_URL}/blockchain/status",
+        method="GET",
+        headers={"Authorization": request.headers.get("Authorization")}
+    )
+    return proxied(response)
