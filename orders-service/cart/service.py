@@ -1,6 +1,7 @@
 import os
 import httpx
 import pybreaker
+import functools
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models import StavkaKorpe
@@ -9,20 +10,37 @@ from repository import CartRepository
 PRODUCT_CATALOG_URL = os.getenv("PRODUCT_CATALOG_URL", "http://product-catalog-service:8002")
 
 product_catalog_breaker = pybreaker.CircuitBreaker(
-    fail_max=3,  
-    reset_timeout=30  
+    fail_max=3,         
+    reset_timeout=30,    
+    exclude=[HTTPException],  
 )
 
+
 def circuit_breaker_async(breaker):
-    """
-    Dekorator za async funkcije koji koristi pybreaker CircuitBreaker.
-    """
+    
     def decorator(func):
+        @functools.wraps(func)
         async def wrapper(*args, **kwargs):
+           
+            if breaker.current_state == "open":
+                raise pybreaker.CircuitBreakerError(
+                    f"Prekidac je otvoren, poziv ka {func.__name__} je odbijen"
+                )
             try:
-                return await breaker.call_async(func, *args, **kwargs)
-            except Exception as e:
-                raise e
+                rezultat = await func(*args, **kwargs)
+            except BaseException as e:
+                
+                if breaker.is_system_error(e):
+                    breaker._state_storage.increment_counter()
+                    if breaker.fail_counter >= breaker.fail_max:
+                        breaker.open()
+                raise
+            else:
+               
+                breaker._state_storage.reset_counter()
+                if breaker.current_state == "half-open":
+                    breaker.close()
+                return rezultat
         return wrapper
     return decorator
 
