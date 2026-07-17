@@ -4,43 +4,70 @@ const OCEKIVANA_ADRESA = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 
 async function main() {
   
-  const [vlasnik, ordersNalog, catalogNalog] = await hre.ethers.getSigners();
+  const [vlasnik, ordersNalog, catalogNalog, ordersConsumerNalog] =
+    await hre.ethers.getSigners();
 
   console.log("=".repeat(70));
-  console.log("Postavljanje SagaAudit ugovora na lokalnu privatnu mrezu");
+  console.log("SagaAudit - postavljanje na lokalnu privatnu mrezu");
   console.log("=".repeat(70));
-  console.log("Vlasnik (deployer):", vlasnik.address);
 
   const SagaAudit = await hre.ethers.getContractFactory("SagaAudit");
-  const ugovor = await SagaAudit.deploy();
+  let ugovor;
 
-  await ugovor.waitForDeployment();
-  const adresa = await ugovor.getAddress();
+  const bajtkod = await hre.ethers.provider.getCode(OCEKIVANA_ADRESA);
 
-  console.log("Ugovor postavljen na adresu:", adresa);
+  if (bajtkod !== "0x") {
+    console.log("Ugovor vec postoji na adresi:", OCEKIVANA_ADRESA);
+    console.log("Deploy se preskace.");
+    ugovor = SagaAudit.attach(OCEKIVANA_ADRESA);
+  } else {
+    console.log("Vlasnik (deployer):", vlasnik.address);
+    ugovor = await SagaAudit.deploy();
+    await ugovor.waitForDeployment();
+    const adresa = await ugovor.getAddress();
+    console.log("Ugovor postavljen na adresu:", adresa);
 
-  if (adresa.toLowerCase() !== OCEKIVANA_ADRESA.toLowerCase()) {
-    console.error("\nGRESKA: adresa ugovora nije ocekivana!");
-    console.error("  ocekivano:", OCEKIVANA_ADRESA);
-    console.error("  dobijeno :", adresa);
-    console.error("Mreza verovatno nije sveza. Resenje: docker compose down -v pa ponovo up.");
-    process.exit(1);
+    if (adresa.toLowerCase() !== OCEKIVANA_ADRESA.toLowerCase()) {
+      console.error("\nGRESKA: adresa ugovora nije ocekivana!");
+      console.error("  ocekivano:", OCEKIVANA_ADRESA);
+      console.error("  dobijeno :", adresa);
+      console.error("Nalog #0 je vec slao transakcije pre deploy-a.");
+      console.error("Resenje: docker compose rm -sf hardhat, pa ponovo up.");
+      process.exit(1);
+    }
   }
 
-  console.log("\nAutorizacija servisnih naloga:");
+  console.log("\nServisni nalozi:");
 
-  await (await ugovor.authorizeService(ordersNalog.address)).wait();
-  console.log("  orders-service         ->", ordersNalog.address);
+  const nalozi = [
+    { opis: "orders-service (HTTP)    ", nalog: ordersNalog },
+    { opis: "product-catalog-service  ", nalog: catalogNalog },
+    { opis: "orders-service (consumer)", nalog: ordersConsumerNalog },
+  ];
 
-  await (await ugovor.authorizeService(catalogNalog.address)).wait();
-  console.log("  product-catalog-service ->", catalogNalog.address);
+  for (const { opis, nalog } of nalozi) {
+    const vecAutorizovan = await ugovor.authorizedServices(nalog.address);
 
-  const ordersOk = await ugovor.authorizedServices(ordersNalog.address);
-  const catalogOk = await ugovor.authorizedServices(catalogNalog.address);
+    if (vecAutorizovan) {
+      console.log("  " + opis + " -> " + nalog.address + "  (vec autorizovan)");
+    } else {
+      await (await ugovor.authorizeService(nalog.address)).wait();
+      console.log("  " + opis + " -> " + nalog.address + "  (autorizovan)");
+    }
+  }
 
   console.log("\nProvera dozvola:");
-  console.log("  orders autorizovan :", ordersOk);
-  console.log("  catalog autorizovan:", catalogOk);
+  let sveOk = true;
+  for (const { opis, nalog } of nalozi) {
+    const ok = await ugovor.authorizedServices(nalog.address);
+    console.log("  " + opis + " :", ok);
+    if (!ok) sveOk = false;
+  }
+
+  if (!sveOk) {
+    console.error("\nGRESKA: nisu svi nalozi autorizovani.");
+    process.exit(1);
+  }
 
   console.log("\nGotovo. Ugovor je spreman za upis Saga koraka.");
   console.log("=".repeat(70));

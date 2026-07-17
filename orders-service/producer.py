@@ -2,10 +2,13 @@ import os
 import json
 from dotenv import load_dotenv
 from aiokafka import AIOKafkaProducer
+from blockchain_client import BlockchainClient, STATUS_SUCCESS
 
 load_dotenv()
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+
+blockchain = BlockchainClient("ORDERS_PRIVATE_KEY", "orders-service") 
 
 async def posalji_order_completed(narudzba_id: int, korisnik_id: int,
                                    email: str, ukupan_iznos: float, stavke: list,
@@ -35,5 +38,6 @@ async def posalji_order_completed(narudzba_id: int, korisnik_id: int,
         }
         await producer.send_and_wait("order_completed", event)
         print(f"Event order_completed poslan za narudžbinu {narudzba_id}")
+        blockchain.log_step_bg(narudzba_id, "ORDER_CREATED", STATUS_SUCCESS) 
     finally:
         await producer.stop()
