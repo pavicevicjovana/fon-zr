@@ -27,3 +27,7 @@ async def get_narudzbe(korisnik_id: int, db: Session = Depends(get_db)):
 @router.get("/{korisnik_id}/{narudzba_id}")
 async def get_narudzba(korisnik_id: int, narudzba_id: int, db: Session = Depends(get_db)):
     return service.get_narudzba(db, korisnik_id, narudzba_id)
+
+@router.get("/{korisnik_id}/{narudzba_id}/audit")
+async def get_audit_trail(korisnik_id: int, narudzba_id: int, db: Session = Depends(get_db)):
+    return await service.get_audit_trail(db, korisnik_id, narudzba_id)

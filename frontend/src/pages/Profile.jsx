@@ -3,7 +3,7 @@ import { api } from '../api/axios';
 import { useNavigate } from 'react-router-dom';
 import { User, Package, MapPin, ChevronDown, ChevronUp, Plus, X, Trash2 } from 'lucide-react';
 import CountrySelect from '../components/CountrySelect';
-
+import BlockchainAudit from '../components/BlockchainAudit';
 const TABS = [
   { key: 'info', label: 'LIČNI PODACI', Icon: User },
   { key: 'orders', label: 'NARUDŽBINE', Icon: Package },
@@ -249,6 +249,7 @@ export default function Profile({ user, setUser }) {
                         {Number(orderDetail.ukupan_iznos).toLocaleString()} RSD
                       </span>
                     </div>
+                     <BlockchainAudit userId={user.id} orderId={order.narudzba_id} />
                   </div>
                 )}
               </div>

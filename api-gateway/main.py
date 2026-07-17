@@ -475,6 +475,16 @@ async def get_orders(korisnik_id: int, request: Request, payload: dict = Depends
     return proxied(response)
 
 
+@app.get("/api/orders/{korisnik_id}/{narudzba_id}/audit")
+async def get_order_audit(korisnik_id: int, narudzba_id: int, request: Request, payload: dict = Depends(verify_token)):
+    verify_owner_or_admin(korisnik_id, payload)
+    response = await forward_request(
+        url=f"{ORDERS_SERVICE_URL}/orders/{korisnik_id}/{narudzba_id}/audit",
+        method="GET",
+        headers={"Authorization": request.headers.get("Authorization")}
+    )
+    return proxied(response)
+
 @app.get("/api/orders/{korisnik_id}/{narudzba_id}")
 async def get_order(korisnik_id: int, narudzba_id: int, request: Request, payload: dict = Depends(verify_token)):
     verify_owner_or_admin(korisnik_id, payload)
@@ -560,6 +570,15 @@ async def admin_get_all_products(request: Request, payload: dict = Depends(verif
 async def get_all_users(request: Request, payload: dict = Depends(verify_admin)):
     response = await forward_request(
         url=f"{USERS_SERVICE_URL}/users",
+        method="GET",
+        headers={"Authorization": request.headers.get("Authorization")}
+    )
+    return proxied(response)
+
+@app.get("/api/admin/blockchain")
+async def get_blockchain_status(request: Request, payload: dict = Depends(verify_admin)):
+    response = await forward_request(
+        url=f"{ORDERS_SERVICE_URL}/blockchain/status",
         method="GET",
         headers={"Authorization": request.headers.get("Authorization")}
     )

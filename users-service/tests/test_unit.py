@@ -27,24 +27,24 @@ class TestUserServiceUnit(unittest.IsolatedAsyncioTestCase):
 
     @patch('users.service.httpx.AsyncClient')
     async def test_dodaj_adresu_success(self, mock_client_class):
-       
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_client = mock_client_class.return_value.__aenter__.return_value
-        mock_client.get.return_value = mock_response
-
         
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+       
+        mock_response.json.return_value = {"data": {"meta": {"total": 1}}}
+
+        mock_client = mock_client_class.return_value.__aenter__.return_value
+        mock_client.get = AsyncMock(return_value=mock_response)
+
         self.service.repo.get_by_id.return_value = MagicMock()
         self.service.repo.get_or_create_mesto.return_value = MagicMock(id=1, grad="BG", drzava="Serbia")
         self.service.repo.add_address.return_value = MagicMock(id=10, ulica="Test", kucni_broj="1")
-        
-        
+
         result = await self.service.dodaj_adresu(
-            korisnik_id=1, ulica="Test", kucni_broj="1", sprat=1, 
+            korisnik_id=1, ulica="Test", kucni_broj="1", sprat=1,
             postanski_broj="11000", grad="BG", drzava="Serbia"
         )
-        
-        
+
         self.assertEqual(result["message"], "Adresa uspješno dodana")
         self.service.repo.add_address.assert_called()
 
