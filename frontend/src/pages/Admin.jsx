@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/axios';
 import { Plus, Pencil, Trash2, RotateCcw, X, Package, Users, CheckCircle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import BlockchainPanel from '../components/BlockchainPanel';
 
 const initialForm = {
   name: '', description: '', price: '', category: '', collection: '', is_active: true, variants: [],
 };
 const initialVariant = { size: '', color: '', stock: '' };
+
 
 function StatCard({ icon: Icon, label, value, sub, color = 'black' }) {
   return (
@@ -45,6 +47,7 @@ export default function Admin({ user }) {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [blockchainSteps, setBlockchainSteps] = useState(null);
 
   useEffect(() => {
     if (!user || user.rola !== 'administrator') return;
@@ -186,6 +189,7 @@ export default function Admin({ user }) {
             {[
               { key: 'products', label: 'Proizvodi', count: products.length },
               { key: 'users', label: 'Korisnici', count: users.length },
+              { key: 'blockchain', label: 'Blokčejn', count: blockchainSteps },
             ].map(({ key, label, count }) => (
               <button
                 key={key}
@@ -195,11 +199,13 @@ export default function Admin({ user }) {
                 }`}
               >
                 {label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-sm ${
-                  tab === key ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-400'
-                }`}>
-                  {count}
-                </span>
+                {count !== null && count !== undefined && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-sm ${
+                    tab === key ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-400'
+                  }`}>
+                    {count}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -538,7 +544,14 @@ export default function Admin({ user }) {
                 </table>
               )}
             </div>
+
+            
           )}
+
+          {tab === 'blockchain' && (
+            <BlockchainPanel onLoaded={(d) => setBlockchainSteps(d?.ugovor?.ukupno_koraka ?? null)} />
+          )}
+
         </div>
       </div>
     </div>

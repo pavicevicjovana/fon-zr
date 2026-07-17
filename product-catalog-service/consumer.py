@@ -6,6 +6,8 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
+from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_FAILED
+
 load_dotenv()
 
 client = AsyncIOMotorClient(os.getenv("MONGODB_URL"))
@@ -13,6 +15,8 @@ db = client[os.getenv("MONGODB_DB_NAME")]
 products_collection = db["products"]
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
+
+blockchain = BlockchainClient("CATALOG_PRIVATE_KEY", "product-catalog-service")
 
 async def main():
     consumer = AIOKafkaConsumer(
@@ -87,6 +91,8 @@ async def main():
                 await producer.send_and_wait("order_confirmed", confirmed_data)
                 print(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
 
+                blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS)
+
             except Exception as e:
                 print(f"Greška pri obradi narudžbine: {e}")
                 refund_data = {
@@ -97,6 +103,8 @@ async def main():
                 }
                 await producer.send_and_wait("refund_order", refund_data)
                 print(f"Poslan refund_order event za narudžbinu {narudzba_id}")
+
+                blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED)
 
     finally:
         await consumer.stop()

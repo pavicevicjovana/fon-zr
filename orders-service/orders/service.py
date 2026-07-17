@@ -1,10 +1,8 @@
-
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from repository import OrderRepository, CartRepository
-from producer import posalji_order_completed
 import pybreaker
-
+from producer import posalji_order_completed, blockchain
 
 
 # Circuit Breaker za korisnički servis (primer, proširite po potrebi)
@@ -113,4 +111,18 @@ class OrderService:
             "adresa_isporuke": narudzba.adresa_isporuke,
             "kreirana": narudzba.kreirana,
             "stavke": stavke
+        }
+
+    async def get_audit_trail(self, db: Session, korisnik_id: int, narudzba_id: int) -> dict:
+        narudzba = self.order_repo.get_by_id(db, narudzba_id, korisnik_id)
+        if not narudzba:
+            raise HTTPException(status_code=404, detail="Narudžbina nije pronađena")
+
+        koraci = await blockchain.get_steps(narudzba_id)
+
+        return {
+            "narudzba_id": narudzba_id,
+            "status_u_bazi": narudzba.status,
+            "broj_koraka": len(koraci),
+            "koraci": koraci
         }
