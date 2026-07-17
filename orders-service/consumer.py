@@ -6,6 +6,7 @@ from aiokafka import AIOKafkaConsumer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Narudzba
+from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_COMPENSATED
 
 load_dotenv()
 
@@ -14,6 +15,8 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
+
+blockchain = BlockchainClient("ORDERS_CONSUMER_PRIVATE_KEY", "orders-service")
 
 async def main():
     consumer = AIOKafkaConsumer(
@@ -49,13 +52,23 @@ async def main():
                 ).first()
 
                 if narudzba:
+                    korak = None
+
                     if topic == "order_confirmed":
                         narudzba.status = "potvrdjena"
                         print(f"Narudžbina {narudzba.id} potvrđena")
+                        korak = ("ORDER_CONFIRMED", STATUS_SUCCESS)
                     elif topic == "refund_order":
                         narudzba.status = "otkazano"
                         print(f"Narudžbina {narudzba.id} otkazana — razlog: {data.get('reason')}")
+                        
+                        korak = ("ORDER_CANCELLED", STATUS_COMPENSATED)
+
                     db.commit()
+
+                    
+                    if korak:
+                        blockchain.log_step_bg(narudzba.id, korak[0], korak[1])
             except Exception as e:
                 print(f"Greška pri ažuriranju narudžbine: {e}")
             finally:
