@@ -14,14 +14,15 @@ from typing import Optional, List
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter
+from log_config import setup_logging, correlation_id_ctx
+
+setup_logging("api-gateway")
 
 http_errors_total = Counter(
     "http_errors_total",
     "Ukupan broj HTTP gresaka (4xx + 5xx) po statusu, metodi i ruti",
     ["status_code", "method", "handler"]
 )
-
-correlation_id_ctx = contextvars.ContextVar("correlation_id", default="")
 
 load_dotenv()
 

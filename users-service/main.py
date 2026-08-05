@@ -6,16 +6,19 @@ from models import Rola
 from auth.controller import router as auth_router
 from users.controller import router as users_router
 from users.service import get_countries
+from log_config import setup_logging, correlation_id_middleware
+
 
 Base.metadata.create_all(bind=engine)
+
+logger = setup_logging("users-service")
 
 app = FastAPI(title="Users Service")
 Instrumentator().instrument(app).expose(app)
 
-# Internal service: no browser access allowed; all traffic must come through the API Gateway.
-# CORSMiddleware is intentionally omitted.
 
 app.include_router(auth_router)
+app.middleware("http")(correlation_id_middleware)
 app.include_router(users_router)
 
 

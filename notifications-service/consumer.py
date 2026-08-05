@@ -6,6 +6,7 @@ import httpx
 from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer
 from prometheus_client import Counter, start_http_server
+from log_config import setup_logging, correlation_id_from_event, set_correlation_id
 
 KAFKA_MESSAGES_RECEIVED = Counter(
     "kafka_messages_received_total",
@@ -19,6 +20,9 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 SENDER_NAME = os.getenv("SENDER_NAME")
+
+logger = setup_logging("notifications-service")
+
 
 async def send_email(to_email: str, to_name: str, subject: str, html_content: str):
     url = "https://api.brevo.com/v3/smtp/email"
@@ -36,9 +40,9 @@ async def send_email(to_email: str, to_name: str, subject: str, html_content: st
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, headers=headers)
         if response.status_code == 201:
-            print(f"Email uspjesno poslat na: {to_email}")
+            logger.info(f"Email uspesno poslat na: {to_email}")
         else:
-            print(f"Greska pri slanju emaila: {response.status_code} — {response.text}")
+            logger.error(f"Greska pri slanju emaila: {response.status_code} : {response.text}")
 
 
 def build_order_received_email(data: dict) -> tuple[str, str]:
@@ -202,7 +206,7 @@ def build_refund_email(data: dict) -> tuple[str, str]:
 
 async def main():
     threading.Thread(target=lambda: start_http_server(8080), daemon=True).start()
-    print("Prometheus metrics server pokrenut na portu 8080")
+    logger.info("Prometheus metrics server pokrenut na portu 8080")
 
     consumer = AIOKafkaConsumer(
         "order_completed",
@@ -217,27 +221,30 @@ async def main():
     for attempt in range(1, 11):
         try:
             await consumer.start()
-            print("Notifications Consumer uspjesno pokrenut")
+            logger.info("Notifications Consumer uspesno pokrenut")
             break
         except Exception as e:
-            print(f"Pokusaj {attempt}/10 neuspio: {e}. Cekanje 5s...")
+            logger.error(f"Pokusaj {attempt}/10 neuspeo: {e}. Cekanje 5s...")
             await asyncio.sleep(5)
             if attempt == 10:
-                print("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
+                logger.error("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
                 raise
 
     try:
         async for message in consumer:
             topic = message.topic
             data = message.value
+
+            set_correlation_id(correlation_id_from_event(data))
+
             KAFKA_MESSAGES_RECEIVED.labels(topic=topic).inc()
-            print(f"Primljen event iz topica '{topic}': {data}")
+            logger.info(f"Primljen event iz topica '{topic}': {data}")
 
             to_email = data.get("user_email")
             to_name = data.get("user_name", "Potrosac")
 
             if not to_email:
-                print(f"Preskacemo event — nema user_email: {data}")
+                logger.info(f"Preskacemo event — nema user_email: {data}")
                 continue
 
             if topic == "order_completed":
@@ -249,14 +256,14 @@ async def main():
             elif topic == "user_registered":
                 subject, html_content = build_welcome_email(data)
             else:
-                print(f"Nepoznat topic: {topic} — preskacemo")
+                logger.info(f"Nepoznat topic: {topic}. Preskacemo")
                 continue
 
             await send_email(to_email, to_name, subject, html_content)
 
     finally:
         await consumer.stop()
-        print("Notifications Consumer zaustavljen")
+        logger.info("Notifications Consumer zaustavljen")
 
 
 if __name__ == "__main__":
