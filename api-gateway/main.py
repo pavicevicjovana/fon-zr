@@ -1,6 +1,8 @@
 import os
 import bleach
 import httpx
+import uuid
+import contextvars
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -19,6 +21,8 @@ http_errors_total = Counter(
     ["status_code", "method", "handler"]
 )
 
+correlation_id_ctx = contextvars.ContextVar("correlation_id", default="")
+
 load_dotenv()
 
 app = FastAPI(title="Velura API Gateway")
@@ -33,20 +37,27 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 security = HTTPBearer()
 csrf_serializer = URLSafeTimedSerializer(SECRET_KEY)
 
-# Paths excluded from CSRF validation (public/infrastructure endpoints)
 CSRF_EXEMPT_PATHS = {
     "/health", "/metrics", "/api/csrf-token",
     "/docs", "/openapi.json", "/redoc",
     "/api/users/register", "/api/users/login",
 }
 
-
 def sanitize(value: str) -> str:
     """Strip all HTML tags from a string to prevent XSS injection."""
     return bleach.clean(value, tags=[], attributes={}, strip=True)
 
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    corr_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    correlation_id_ctx.set(corr_id)
 
-# --- XSS: Security response headers middleware ---
+    response = await call_next(request)
+
+    response.headers["X-Correlation-ID"] = corr_id
+    return response
+
+
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -66,7 +77,6 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
-# --- Metrics: Count 4xx/5xx responses for Grafana error panel ---
 @app.middleware("http")
 async def count_errors_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -78,8 +88,6 @@ async def count_errors_middleware(request: Request, call_next):
         ).inc()
     return response
 
-
-# --- CSRF: Validate signed token for all state-changing requests ---
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
@@ -104,8 +112,6 @@ async def csrf_middleware(request: Request, call_next):
                 )
     return await call_next(request)
 
-
-# --- CORS: Restrict to the frontend origin with explicit allowed headers ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -115,8 +121,6 @@ app.add_middleware(
     expose_headers=["X-CSRF-Token"]
 )
 
-
-# --- XSS: Base model that sanitizes all string inputs before validation ---
 class SanitizedModel(BaseModel):
     """Strips HTML tags from every string field to prevent stored/reflected XSS."""
 
@@ -230,8 +234,6 @@ def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=403, detail="Pristup dozvoljen samo administratorima")
     return payload
 
-
-# --- IDOR: Verify the token owner matches the requested resource ID ---
 def verify_owner_or_admin(korisnik_id: int, payload: dict):
     token_user_id = payload.get("sub")
     if token_user_id is None:
@@ -246,8 +248,8 @@ def verify_owner_or_admin(korisnik_id: int, payload: dict):
 def proxied(response: httpx.Response) -> JSONResponse:
     return JSONResponse(content=response.json(), status_code=response.status_code)
 
-
 async def forward_request(url: str, method: str, headers: dict, body: bytes = None):
+    headers = {**(headers or {}), "X-Correlation-ID": correlation_id_ctx.get()}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.request(
@@ -263,7 +265,6 @@ async def forward_request(url: str, method: str, headers: dict, body: bytes = No
         raise HTTPException(status_code=503, detail="Mikroservis nije dostupan")
 
 
-# --- CSRF: Token generation endpoint ---
 @app.get("/api/csrf-token")
 async def get_csrf_token():
     """
