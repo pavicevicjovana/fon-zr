@@ -147,6 +147,8 @@ services:
       REST_COUNTRIES_URL: https://api.restcountries.com/countries/v5
       REST_COUNTRIES_API_KEY: ${REST_COUNTRIES_API_KEY}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5000"
     ports:
       - "8001:8001"
     depends_on:
@@ -169,7 +171,9 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL}                      
       CONTRACT_ADDRESS: ${CONTRACT_ADDRESS}                          
-      CATALOG_PRIVATE_KEY: ${CATALOG_PRIVATE_KEY}                    
+      CATALOG_PRIVATE_KEY: ${CATALOG_PRIVATE_KEY}         
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5000"           
     volumes:                                                         
       - ./blockchain/abi/SagaAudit.json:/app/abi/SagaAudit.json:ro   
     ports:
@@ -199,7 +203,9 @@ services:
       BLOCKCHAIN_RPC_URL: ${BLOCKCHAIN_RPC_URL}                      
       CONTRACT_ADDRESS: ${CONTRACT_ADDRESS}                          
       ORDERS_PRIVATE_KEY: ${ORDERS_PRIVATE_KEY}                      
-      ORDERS_CONSUMER_PRIVATE_KEY: ${ORDERS_CONSUMER_PRIVATE_KEY}    
+      ORDERS_CONSUMER_PRIVATE_KEY: ${ORDERS_CONSUMER_PRIVATE_KEY}   
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5000" 
     volumes:                                                          
       - ./blockchain/abi/SagaAudit.json:/app/abi/SagaAudit.json:ro   
     ports:
@@ -225,6 +231,8 @@ services:
       BREVO_API_KEY: ${BREVO_API_KEY}
       SENDER_EMAIL: ${SENDER_EMAIL}
       SENDER_NAME: ${SENDER_NAME}
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5000"
     ports:
       - "8080:8080"
     depends_on:
@@ -245,6 +253,8 @@ services:
       ORDERS_SERVICE_URL: http://orders-service:8003
       SECRET_KEY: ${SECRET_KEY}
       ALGORITHM: ${ALGORITHM}
+      LOGSTASH_HOST: logstash
+      LOGSTASH_PORT: "5000"
     ports:
       - "8000:8000"
     depends_on:
@@ -364,6 +374,52 @@ services:
       - velura-network
     restart: unless-stopped
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: velura-elasticsearch
+    profiles: ["elk"]
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - velura-network
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.4
+    container_name: velura-logstash
+    profiles: ["elk"]
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports:
+      - "5000:5000"
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+    depends_on:
+      - elasticsearch
+    networks:
+      - velura-network
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: velura-kibana
+    profiles: ["elk"]
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - velura-network
+    restart: unless-stopped
+
 
 networks:
   velura-network:
@@ -377,3 +433,4 @@ volumes:
   kafka_data:
   prometheus_data:
   grafana_data:
+  es-data:
