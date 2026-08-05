@@ -1,12 +1,14 @@
 import os
 import json
 import asyncio
+import logging
 from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Narudzba
 from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_COMPENSATED
+from log_config import setup_logging, correlation_id_from_event
 
 load_dotenv()
 
@@ -17,6 +19,8 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 blockchain = BlockchainClient("ORDERS_CONSUMER_PRIVATE_KEY", "orders-service")
+
+logger = setup_logging("orders-service")
 
 async def main():
     consumer = AIOKafkaConsumer(
@@ -30,20 +34,24 @@ async def main():
     for attempt in range(1, 11):
         try:
             await consumer.start()
-            print("Orders Consumer uspjesno pokrenut")
+            logger.info("Orders Consumer uspesno pokrenut")
             break
         except Exception as e:
-            print(f"Pokusaj {attempt}/10 neuspio: {e}. Cekanje 5s...")
+            logger.error(f"Pokusaj {attempt}/10 neuspeo: {e}. Cekanje 5s...")
             await asyncio.sleep(5)
             if attempt == 10:
-                print("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
+                logger.error("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
                 raise
 
     try:
         async for message in consumer:
             data = message.value
             topic = message.topic
-            print(f"Primljen event sa topica '{topic}': {data}")
+
+            from log_config import set_correlation_id
+            set_correlation_id(correlation_id_from_event(data))
+
+            logger.info(f"Primljen event sa topica '{topic}': {data}")
 
             db = SessionLocal()
             try:
@@ -56,11 +64,11 @@ async def main():
 
                     if topic == "order_confirmed":
                         narudzba.status = "potvrdjena"
-                        print(f"Narudžbina {narudzba.id} potvrđena")
+                        logger.info(f"Narudžbina {narudzba.id} potvrdjena")
                         korak = ("ORDER_CONFIRMED", STATUS_SUCCESS)
                     elif topic == "refund_order":
                         narudzba.status = "otkazano"
-                        print(f"Narudžbina {narudzba.id} otkazana — razlog: {data.get('reason')}")
+                        logger.info(f"Narudžbina {narudzba.id} otkazana. Razlog: {data.get('reason')}")
                         
                         korak = ("ORDER_CANCELLED", STATUS_COMPENSATED)
 
@@ -70,7 +78,7 @@ async def main():
                     if korak:
                         blockchain.log_step_bg(narudzba.id, korak[0], korak[1])
             except Exception as e:
-                print(f"Greška pri ažuriranju narudžbine: {e}")
+                logger.error(f"Greška pri ažuriranju narudžbine: {e}")
             finally:
                 db.close()
 

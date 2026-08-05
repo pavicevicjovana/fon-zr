@@ -5,7 +5,7 @@ import logging
 
 from web3 import Web3
 
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 STATUS_SUCCESS = 0

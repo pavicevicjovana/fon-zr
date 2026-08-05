@@ -6,6 +6,13 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
+from log_config import (
+    setup_logging,
+    correlation_id_from_event,
+    set_correlation_id,
+    get_correlation_id,
+)
+
 from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_FAILED
 
 load_dotenv()
@@ -16,7 +23,10 @@ products_collection = db["products"]
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 
+logger = setup_logging("product-catalog-service")
+
 blockchain = BlockchainClient("CATALOG_PRIVATE_KEY", "product-catalog-service")
+
 
 async def main():
     consumer = AIOKafkaConsumer(
@@ -35,19 +45,23 @@ async def main():
         try:
             await consumer.start()
             await producer.start()
-            print("Product Catalog Consumer uspjesno pokrenut")
+            logger.info("Product Catalog Consumer uspjesno pokrenut")
             break
         except Exception as e:
-            print(f"Pokusaj {attempt}/10 neuspio: {e}. Cekanje 5s...")
+            logger.error(f"Pokusaj {attempt}/10 neuspio: {e}. Cekanje 5s...")
             await asyncio.sleep(5)
             if attempt == 10:
-                print("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
+                logger.error("Nije moguce pokrenuti consumer nakon 10 pokusaja.")
                 raise
 
     try:
         async for message in consumer:
             data = message.value
-            print(f"Primljen event: {data}")
+
+            set_correlation_id(correlation_id_from_event(data))
+            corr_id = get_correlation_id()
+
+            logger.info(f"Primljen event sa ID-ijem: {corr_id} : {data}")
 
             narudzba_id = data.get("narudzba_id", "N/A")
             try:
@@ -81,28 +95,30 @@ async def main():
                         {"_id": ObjectId(product_id)},
                         {"$set": {"variants": updated_variants}}
                     )
-                    print(f"Zalihe smanjene za proizvod {product['name']}, kolicina: {quantity}")
+                    logger.info(f"Zalihe smanjene za proizvod {product['name']}, kolicina: {quantity}")
 
                 confirmed_data = {
                     "order_id": narudzba_id,
                     "user_email": data.get("user_email"),
-                    "user_name": data.get("user_name", "Potrosac")
+                    "user_name": data.get("user_name", "Potrosac"),
+                    "correlation_id": corr_id,
                 }
                 await producer.send_and_wait("order_confirmed", confirmed_data)
-                print(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
+                logger.info(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
 
                 blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS)
 
             except Exception as e:
-                print(f"Greška pri obradi narudžbine: {e}")
+                logger.error(f"Greška pri obradi narudžbine: {e}")
                 refund_data = {
                     "order_id": narudzba_id,
                     "user_email": data.get("user_email"),
                     "user_name": data.get("user_name", "Potrosac"),
-                    "reason": str(e)
+                    "reason": str(e),
+                    "correlation_id": corr_id,
                 }
                 await producer.send_and_wait("refund_order", refund_data)
-                print(f"Poslan refund_order event za narudžbinu {narudzba_id}")
+                logger.info(f"Poslat refund_order event za narudžbinu {narudzba_id}")
 
                 blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED)
 
