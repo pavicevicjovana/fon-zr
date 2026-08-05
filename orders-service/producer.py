@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from aiokafka import AIOKafkaProducer
 from blockchain_client import BlockchainClient, STATUS_SUCCESS
 from log_config import get_correlation_id
-
+from tracing import inject_trace_context
 
 
 load_dotenv()
@@ -44,6 +44,7 @@ async def posalji_order_completed(narudzba_id: int, korisnik_id: int,
             "items": stavke,
             "correlation_id": get_correlation_id(),
         }
+        inject_trace_context(event)
         await producer.send_and_wait("order_completed", event)
         logger.info(f"Event order_completed poslan za narudžbinu {narudzba_id}")
         blockchain.log_step_bg(narudzba_id, "ORDER_CREATED", STATUS_SUCCESS) 

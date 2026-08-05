@@ -8,7 +8,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Narudzba
 from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_COMPENSATED
-from log_config import setup_logging, correlation_id_from_event
+from log_config import setup_logging, correlation_id_from_event, set_correlation_id
+from tracing import setup_tracing, extract_trace_context
+
 
 load_dotenv()
 
@@ -21,6 +23,8 @@ SessionLocal = sessionmaker(bind=engine)
 blockchain = BlockchainClient("ORDERS_CONSUMER_PRIVATE_KEY", "orders-service")
 
 logger = setup_logging("orders-service")
+tracer = setup_tracing("orders-service")
+
 
 async def main():
     consumer = AIOKafkaConsumer(
@@ -48,39 +52,40 @@ async def main():
             data = message.value
             topic = message.topic
 
-            from log_config import set_correlation_id
+            
             set_correlation_id(correlation_id_from_event(data))
+            ctx = extract_trace_context(data)
+            with tracer.start_as_current_span(f"obrada {topic}", context=ctx):
+                logger.info(f"Primljen event sa topica '{topic}': {data}")
 
-            logger.info(f"Primljen event sa topica '{topic}': {data}")
+                db = SessionLocal()
+                try:
+                    narudzba = db.query(Narudzba).filter(
+                        Narudzba.id == data.get("order_id")
+                    ).first()
 
-            db = SessionLocal()
-            try:
-                narudzba = db.query(Narudzba).filter(
-                    Narudzba.id == data.get("order_id")
-                ).first()
+                    if narudzba:
+                        korak = None
 
-                if narudzba:
-                    korak = None
+                        if topic == "order_confirmed":
+                            narudzba.status = "potvrdjena"
+                            logger.info(f"Narudžbina {narudzba.id} potvrdjena")
+                            korak = ("ORDER_CONFIRMED", STATUS_SUCCESS)
+                        elif topic == "refund_order":
+                            narudzba.status = "otkazano"
+                            logger.info(f"Narudžbina {narudzba.id} otkazana. Razlog: {data.get('reason')}")
+                            
+                            korak = ("ORDER_CANCELLED", STATUS_COMPENSATED)
 
-                    if topic == "order_confirmed":
-                        narudzba.status = "potvrdjena"
-                        logger.info(f"Narudžbina {narudzba.id} potvrdjena")
-                        korak = ("ORDER_CONFIRMED", STATUS_SUCCESS)
-                    elif topic == "refund_order":
-                        narudzba.status = "otkazano"
-                        logger.info(f"Narudžbina {narudzba.id} otkazana. Razlog: {data.get('reason')}")
+                        db.commit()
+
                         
-                        korak = ("ORDER_CANCELLED", STATUS_COMPENSATED)
-
-                    db.commit()
-
-                    
-                    if korak:
-                        blockchain.log_step_bg(narudzba.id, korak[0], korak[1])
-            except Exception as e:
-                logger.error(f"Greška pri ažuriranju narudžbine: {e}")
-            finally:
-                db.close()
+                        if korak:
+                            blockchain.log_step_bg(narudzba.id, korak[0], korak[1])
+                except Exception as e:
+                    logger.error(f"Greška pri ažuriranju narudžbine: {e}")
+                finally:
+                    db.close()
 
     finally:
         await consumer.stop()

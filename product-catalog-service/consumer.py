@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+from tracing import setup_tracing, extract_trace_context, inject_trace_context
+from opentelemetry import trace
 
 from log_config import (
     setup_logging,
@@ -24,6 +26,7 @@ products_collection = db["products"]
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
 
 logger = setup_logging("product-catalog-service")
+tracer = setup_tracing("product-catalog-service")
 
 blockchain = BlockchainClient("CATALOG_PRIVATE_KEY", "product-catalog-service")
 
@@ -61,66 +64,70 @@ async def main():
             set_correlation_id(correlation_id_from_event(data))
             corr_id = get_correlation_id()
 
-            logger.info(f"Primljen event sa ID-ijem: {corr_id} : {data}")
+            ctx = extract_trace_context(data)
+            with tracer.start_as_current_span("obrada order_completed", context=ctx):
+                logger.info(f"Primljen event sa ID-ijem: {corr_id} : {data}")
 
-            narudzba_id = data.get("narudzba_id", "N/A")
-            try:
-                stavke = data["stavke"]
+                narudzba_id = data.get("narudzba_id", "N/A")
+                try:
+                    stavke = data["stavke"]
 
-                for stavka in stavke:
-                    product_id = stavka["product_id"]
-                    quantity = int(stavka["quantity"])
-                    size = stavka.get("size")
-                    color = stavka.get("color")
+                    for stavka in stavke:
+                        product_id = stavka["product_id"]
+                        quantity = int(stavka["quantity"])
+                        size = stavka.get("size")
+                        color = stavka.get("color")
 
-                    product = await products_collection.find_one({"_id": ObjectId(product_id)})
+                        product = await products_collection.find_one({"_id": ObjectId(product_id)})
 
-                    if not product:
-                        raise Exception(f"Proizvod {product_id} nije pronađen")
+                        if not product:
+                            raise Exception(f"Proizvod {product_id} nije pronađen")
 
-                    variant_found = False
-                    updated_variants = []
-                    for variant in product.get("variants", []):
-                        if variant["size"].lower() == size.lower() and variant["color"].lower() == color.lower():
-                            if variant["stock"] < quantity:
-                                raise Exception(f"Nema dovoljno zaliha za {product['name']}")
-                            variant["stock"] -= quantity
-                            variant_found = True
-                        updated_variants.append(variant)
+                        variant_found = False
+                        updated_variants = []
+                        for variant in product.get("variants", []):
+                            if variant["size"].lower() == size.lower() and variant["color"].lower() == color.lower():
+                                if variant["stock"] < quantity:
+                                    raise Exception(f"Nema dovoljno zaliha za {product['name']}")
+                                variant["stock"] -= quantity
+                                variant_found = True
+                            updated_variants.append(variant)
 
-                    if not variant_found:
-                        raise Exception(f"Varijanta velicina={size}, boja={color} nije pronađena")
+                        if not variant_found:
+                            raise Exception(f"Varijanta velicina={size}, boja={color} nije pronađena")
 
-                    await products_collection.update_one(
-                        {"_id": ObjectId(product_id)},
-                        {"$set": {"variants": updated_variants}}
-                    )
-                    logger.info(f"Zalihe smanjene za proizvod {product['name']}, kolicina: {quantity}")
+                        await products_collection.update_one(
+                            {"_id": ObjectId(product_id)},
+                            {"$set": {"variants": updated_variants}}
+                        )
+                        logger.info(f"Zalihe smanjene za proizvod {product['name']}, kolicina: {quantity}")
 
-                confirmed_data = {
-                    "order_id": narudzba_id,
-                    "user_email": data.get("user_email"),
-                    "user_name": data.get("user_name", "Potrosac"),
-                    "correlation_id": corr_id,
-                }
-                await producer.send_and_wait("order_confirmed", confirmed_data)
-                logger.info(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
+                    confirmed_data = {
+                        "order_id": narudzba_id,
+                        "user_email": data.get("user_email"),
+                        "user_name": data.get("user_name", "Potrosac"),
+                        "correlation_id": corr_id,
+                    }
+                    inject_trace_context(confirmed_data)
+                    await producer.send_and_wait("order_confirmed", confirmed_data)
+                    logger.info(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
 
-                blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS)
+                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS)
 
-            except Exception as e:
-                logger.error(f"Greška pri obradi narudžbine: {e}")
-                refund_data = {
-                    "order_id": narudzba_id,
-                    "user_email": data.get("user_email"),
-                    "user_name": data.get("user_name", "Potrosac"),
-                    "reason": str(e),
-                    "correlation_id": corr_id,
-                }
-                await producer.send_and_wait("refund_order", refund_data)
-                logger.info(f"Poslat refund_order event za narudžbinu {narudzba_id}")
+                except Exception as e:
+                    logger.error(f"Greška pri obradi narudžbine: {e}")
+                    refund_data = {
+                        "order_id": narudzba_id,
+                        "user_email": data.get("user_email"),
+                        "user_name": data.get("user_name", "Potrosac"),
+                        "reason": str(e),
+                        "correlation_id": corr_id,
+                    }
+                    inject_trace_context(refund_data)
+                    await producer.send_and_wait("refund_order", refund_data)
+                    logger.info(f"Poslat refund_order event za narudžbinu {narudzba_id}")
 
-                blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED)
+                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED)
 
     finally:
         await consumer.stop()

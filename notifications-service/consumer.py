@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer
 from prometheus_client import Counter, start_http_server
 from log_config import setup_logging, correlation_id_from_event, set_correlation_id
+from tracing import setup_tracing, extract_trace_context
+
+
 
 KAFKA_MESSAGES_RECEIVED = Counter(
     "kafka_messages_received_total",
@@ -22,6 +25,7 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 SENDER_NAME = os.getenv("SENDER_NAME")
 
 logger = setup_logging("notifications-service")
+tracer = setup_tracing("notifications-service")
 
 
 async def send_email(to_email: str, to_name: str, subject: str, html_content: str):
@@ -236,30 +240,31 @@ async def main():
             data = message.value
 
             set_correlation_id(correlation_id_from_event(data))
+            ctx = extract_trace_context(data)
+            with tracer.start_as_current_span(f"obrada {topic}", context=ctx):
+                KAFKA_MESSAGES_RECEIVED.labels(topic=topic).inc()
+                logger.info(f"Primljen event iz topica '{topic}': {data}")
 
-            KAFKA_MESSAGES_RECEIVED.labels(topic=topic).inc()
-            logger.info(f"Primljen event iz topica '{topic}': {data}")
+                to_email = data.get("user_email")
+                to_name = data.get("user_name", "Potrosac")
 
-            to_email = data.get("user_email")
-            to_name = data.get("user_name", "Potrosac")
+                if not to_email:
+                    logger.info(f"Preskacemo event — nema user_email: {data}")
+                    continue
 
-            if not to_email:
-                logger.info(f"Preskacemo event — nema user_email: {data}")
-                continue
+                if topic == "order_completed":
+                    subject, html_content = build_order_received_email(data)
+                elif topic == "order_confirmed":
+                    subject, html_content = build_order_confirmed_email(data)
+                elif topic == "refund_order":
+                    subject, html_content = build_refund_email(data)
+                elif topic == "user_registered":
+                    subject, html_content = build_welcome_email(data)
+                else:
+                    logger.info(f"Nepoznat topic: {topic}. Preskacemo")
+                    continue
 
-            if topic == "order_completed":
-                subject, html_content = build_order_received_email(data)
-            elif topic == "order_confirmed":
-                subject, html_content = build_order_confirmed_email(data)
-            elif topic == "refund_order":
-                subject, html_content = build_refund_email(data)
-            elif topic == "user_registered":
-                subject, html_content = build_welcome_email(data)
-            else:
-                logger.info(f"Nepoznat topic: {topic}. Preskacemo")
-                continue
-
-            await send_email(to_email, to_name, subject, html_content)
+                await send_email(to_email, to_name, subject, html_content)
 
     finally:
         await consumer.stop()
