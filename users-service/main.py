@@ -7,6 +7,7 @@ from auth.controller import router as auth_router
 from users.controller import router as users_router
 from users.service import get_countries
 from log_config import setup_logging, correlation_id_middleware
+from tracing import setup_tracing
 
 
 Base.metadata.create_all(bind=engine)
@@ -16,6 +17,7 @@ logger = setup_logging("users-service")
 app = FastAPI(title="Users Service")
 Instrumentator().instrument(app).expose(app)
 
+setup_tracing("users-service", app)
 
 app.include_router(auth_router)
 app.middleware("http")(correlation_id_middleware)

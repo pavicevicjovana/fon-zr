@@ -15,8 +15,9 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter
 from log_config import setup_logging, correlation_id_ctx
+from tracing import setup_tracing
 
-setup_logging("api-gateway")
+
 
 http_errors_total = Counter(
     "http_errors_total",
@@ -28,6 +29,9 @@ load_dotenv()
 
 app = FastAPI(title="Velura API Gateway")
 Instrumentator().instrument(app).expose(app)
+
+setup_tracing("api-gateway", app)
+setup_logging("api-gateway")
 
 USERS_SERVICE_URL = os.getenv("USERS_SERVICE_URL")
 PRODUCT_CATALOG_URL = os.getenv("PRODUCT_CATALOG_URL")
