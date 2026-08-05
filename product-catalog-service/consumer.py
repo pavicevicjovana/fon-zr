@@ -112,7 +112,7 @@ async def main():
                     await producer.send_and_wait("order_confirmed", confirmed_data)
                     logger.info(f"Poslan order_confirmed event za narudžbinu {narudzba_id}")
 
-                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS)
+                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVED", STATUS_SUCCESS, correlation_id=corr_id)
 
                 except Exception as e:
                     logger.error(f"Greška pri obradi narudžbine: {e}")
@@ -127,7 +127,7 @@ async def main():
                     await producer.send_and_wait("refund_order", refund_data)
                     logger.info(f"Poslat refund_order event za narudžbinu {narudzba_id}")
 
-                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED)
+                    blockchain.log_step_bg(narudzba_id, "STOCK_RESERVATION_FAILED", STATUS_FAILED, correlation_id=corr_id)
 
     finally:
         await consumer.stop()

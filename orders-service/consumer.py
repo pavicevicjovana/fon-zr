@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from models import Narudzba
 from blockchain_client import BlockchainClient, STATUS_SUCCESS, STATUS_COMPENSATED
-from log_config import setup_logging, correlation_id_from_event, set_correlation_id
+from log_config import setup_logging, correlation_id_from_event, set_correlation_id, get_correlation_id
 from tracing import setup_tracing, extract_trace_context
 
 
@@ -81,7 +81,7 @@ async def main():
 
                         
                         if korak:
-                            blockchain.log_step_bg(narudzba.id, korak[0], korak[1])
+                            blockchain.log_step_bg(narudzba.id, korak[0], korak[1], correlation_id=get_correlation_id())
                 except Exception as e:
                     logger.error(f"Greška pri ažuriranju narudžbine: {e}")
                 finally:
