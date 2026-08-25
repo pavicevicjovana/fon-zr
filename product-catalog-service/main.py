@@ -3,10 +3,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from search.controller import router as search_router
 from products.controller import router as products_router
 from categories.controller import router as categories_router
+from log_config import correlation_id_middleware
 
 app = FastAPI(title="Product Catalog Service")
 Instrumentator().instrument(app).expose(app)
-
+app.middleware("http")(correlation_id_middleware)
 # Internal service: no browser access allowed; all traffic must come through the API Gateway.
 # CORSMiddleware is intentionally omitted.
 

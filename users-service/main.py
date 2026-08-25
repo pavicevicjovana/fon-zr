@@ -33,6 +33,11 @@ async def startup():
         db.add(Rola(naziv="korisnik"))
     db.commit()
 
+    try:
+        await get_countries()
+    except Exception:
+        pass
+
 
 @app.get("/health")
 async def health():

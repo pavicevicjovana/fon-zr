@@ -33,6 +33,8 @@ Instrumentator().instrument(app).expose(app)
 setup_tracing("api-gateway", app)
 setup_logging("api-gateway")
 
+http_client = httpx.AsyncClient(timeout=10.0, trust_env=False) 
+
 USERS_SERVICE_URL = os.getenv("USERS_SERVICE_URL")
 PRODUCT_CATALOG_URL = os.getenv("PRODUCT_CATALOG_URL")
 ORDERS_SERVICE_URL = os.getenv("ORDERS_SERVICE_URL")
@@ -65,6 +67,7 @@ async def correlation_id_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
+   
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -80,10 +83,12 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
+    
 
 
 @app.middleware("http")
 async def count_errors_middleware(request: Request, call_next):
+    
     response = await call_next(request)
     if response.status_code >= 400:
         http_errors_total.labels(
@@ -92,9 +97,11 @@ async def count_errors_middleware(request: Request, call_next):
             handler=request.url.path
         ).inc()
     return response
+    
 
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
+    
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
         if request.url.path not in CSRF_EXEMPT_PATHS:
             csrf_token = request.headers.get("X-CSRF-Token")
@@ -116,6 +123,7 @@ async def csrf_middleware(request: Request, call_next):
                     content={"detail": "Nevažeći CSRF token"}
                 )
     return await call_next(request)
+    
 
 app.add_middleware(
     CORSMiddleware,
@@ -256,13 +264,13 @@ def proxied(response: httpx.Response) -> JSONResponse:
 async def forward_request(url: str, method: str, headers: dict, body: bytes = None):
     headers = {**(headers or {}), "X-Correlation-ID": correlation_id_ctx.get()}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                content=body
-            )
+    
+        response = await http_client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=body
+        )
         return response
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Mikroservis nije odgovorio na vreme")

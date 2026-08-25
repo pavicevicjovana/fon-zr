@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models import StavkaKorpe
 from repository import CartRepository
+from log_config import correlation_id_ctx
 
 PRODUCT_CATALOG_URL = os.getenv("PRODUCT_CATALOG_URL", "http://product-catalog-service:8002")
 
@@ -52,7 +53,7 @@ class CartService:
     @circuit_breaker_async(product_catalog_breaker)
     async def _validate_stock(self, proizvod_id: str, velicina: str, boja: str, kolicina: int):
         async with httpx.AsyncClient(timeout=5.0) as client:
-            res = await client.get(f"{PRODUCT_CATALOG_URL}/products/{proizvod_id}")
+            res = await client.get(f"{PRODUCT_CATALOG_URL}/products/{proizvod_id}",  headers={"X-Correlation-ID": correlation_id_ctx.get()})
             if res.status_code == 200:
                 product = res.json()
                 variant = next(
